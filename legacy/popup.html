@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Automation Recorder Pro</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <!-- Top Toolbar -->
+  <div class="toolbar">
+    <div class="btn-group">
+      <button id="toggle-btn" class="tool-btn" title="Record">
+        <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"></circle></svg>
+        Record
+      </button>
+      <button id="play-btn" class="tool-btn" title="Play">
+        <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+        Play
+      </button>
+      <button id="export-json-btn" class="tool-btn" title="Export JSON">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export
+      </button>
+    </div>
+    <div id="status-badge" class="status-indicator">
+      <span class="dot"></span>
+      <span class="status-text">Idle</span>
+    </div>
+    <button id="clear-btn" class="tool-btn" style="margin-left:8px;" title="Clear">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path></svg>
+    </button>
+  </div>
+
+  <!-- Table Grid -->
+  <div class="grid-container">
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th style="width: 30px;">#</th>
+          <th style="width: 120px;">Command</th>
+          <th>Target</th>
+          <th style="width: 120px;">Value</th>
+        </tr>
+      </thead>
+      <tbody id="grid-body">
+        <!-- Rows injected here -->
+      </tbody>
+    </table>
+    <div id="grid-empty" class="empty-state" style="display: none;">
+      <p>No actions recorded. Click Record to begin.</p>
+    </div>
+  </div>
+
+  <!-- Bottom Panel Tabs -->
+  <div class="bottom-panel">
+    <div class="tab-bar">
+      <button class="tab-btn active" data-tab="tab-log">Log</button>
+      <button class="tab-btn" data-tab="tab-screenshots">Screenshots</button>
+      <button class="tab-btn" data-tab="tab-variables">Variables</button>
+    </div>
+    <div class="tab-content">
+      <div id="tab-log" class="tab-pane active">
+        <div class="log-entry info">[INFO] Ready to record.</div>
+      </div>
+      <div id="tab-screenshots" class="tab-pane">
+        <p style="color:var(--text-muted); text-align:center; padding-top:20px;">Screenshots feature coming soon.</p>
+      </div>
+      <div id="tab-variables" class="tab-pane">
+        <p style="color:var(--text-muted); text-align:center; padding-top:20px;">No global variables defined.</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

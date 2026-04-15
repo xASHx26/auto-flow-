@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Katalon-Style Recorder",
+  "version": "1.0",
+  "description": "Records user interactions and generates XPaths (Manifest V3)",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "action": {},
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ]
+}
