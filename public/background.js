@@ -636,6 +636,23 @@ async function executeStep() {
       console.warn("Failed to capture error screenshot:", e); 
     }
 
+    if (action.isAssertion) {
+      updateStepStatus(failedIndex, "fail");
+      lastStepStatus = "fail";
+      chrome.runtime.sendMessage({ 
+        type: "LOG_ENTRY", 
+        log: { 
+          message: `Assertion Failed at Step ${failedIndex + 1}: ${error.message}. Aborting test...`, 
+          type: "error", 
+          time: new Date().toLocaleTimeString() 
+        }
+      }).catch(() => {});
+      isPlaying = false;
+      stopHeartbeat();
+      chrome.runtime.sendMessage({ type: "PLAYBACK_STOPPED", screenshots }).catch(() => {});
+      return;
+    }
+
     // Error Recovery: Mark as warning and continue instead of stopping
     updateStepStatus(failedIndex, "warning");
     lastStepStatus = "warning";

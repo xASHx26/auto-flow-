@@ -1,0 +1,1 @@
+const fs = require('fs'); let c = fs.readFileSync('src/App.jsx','utf-8'); c = c.replace(/\\$\\{sc\\}\\$\\{assertCode\\}\\s+page\\.get_by_role/g, '\\$\\{sc\\}\\$\\{assertCode\\}    page.get_by_role'); fs.writeFileSync('src/App.jsx', c);

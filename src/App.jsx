@@ -24,6 +24,8 @@ import {
   Film,
   Package,
   FolderOpen,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -207,24 +209,31 @@ function generatePlaywrightPythonSync(testCase, variables, settings = {}) {
     const loc = buildPlaywrightLocator(a, "py");
     const val = esc(a.value || "");
     const n   = i + 1;
-    const cmt = `    # Step ${n}: ${a.command}${a.text ? ` [${a.text}]` : ""}${a.placeholder ? ` [placeholder: ${a.placeholder}]` : ""}`;
+    const isAssert = !!a.isAssertion;
+    const assertCodeText = isAssert && loc && a.command !== "open" && a.command !== "captureScreenshot" && a.command !== "pause" && a.command !== "verifyText" && a.command !== "verifyElementPresent" ? ` (Assertion)` : "";
+    const cmt = `    # Step ${n}: ${a.command}${a.text ? ` [${a.text}]` : ""}${a.placeholder ? ` [placeholder: ${a.placeholder}]` : ""}${assertCodeText}`;
     const sel = buildSelectorComment(a, "py");
     const sc  = sel ? `${sel}\n` : "";
     const ss  = `os.path.join(SCREENSHOTS_DIR, "step_${n}_screenshot.png")`;
 
+    let assertCode = "";
+    if (isAssert && loc && a.command !== "open" && a.command !== "captureScreenshot" && a.command !== "pause" && a.command !== "verifyText" && a.command !== "verifyElementPresent") {
+      assertCode = `    try:\n        expect(${loc}).to_be_visible(timeout=5000)\n        print(f"✅ Step ${n}: Assertion passed!")\n    except AssertionError as e:\n        print(f"❌ Step ${n}: Assertion failed! ({e})")\n        raise\n`;
+    }
+
     if (a.command === "open") {
-      code += `${cmt}\n${sc}    page.goto("${esc(a.target)}", wait_until="domcontentloaded", timeout=30000)\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    page.goto("${esc(a.target)}", wait_until="domcontentloaded", timeout=30000)\n\n`;
     } else if (a.command === "click") {
       if (a.elementType === "radio") {
         const rName = esc(a.text || a.value || "");
         const inputLoc = buildRecordedInputLocator(a, "radio");
         const labelLoc = buildRecordedLabelLocator(a);
         if (inputLoc && labelLoc) {
-          code += `${cmt}\n${sc}    _radio_${n} = ${inputLoc}\n    if not _radio_${n}.is_checked():\n        ${labelLoc}.click()\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    _radio_${n} = ${inputLoc}\n    if not _radio_${n}.is_checked():\n        ${labelLoc}.click()\n\n`;
         } else if (inputLoc) {
-          code += `${cmt}\n${sc}    ${inputLoc}.check(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    ${inputLoc}.check(force=True)\n\n`;
         } else {
-          code += `${cmt}\n${sc}    page.get_by_role("radio", name="${rName}", exact=True).check(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    page.get_by_role("radio", name="${rName}", exact=True).check(force=True)\n\n`;
         }
       } else if (a.elementType === "checkbox") {
         const m = a.value === "off" ? "uncheck" : "check";
@@ -232,39 +241,39 @@ function generatePlaywrightPythonSync(testCase, variables, settings = {}) {
         const labelLoc = buildRecordedLabelLocator(a);
         const stateCheck = a.value === "off" ? `_checkbox_${n}.is_checked()` : `not _checkbox_${n}.is_checked()`;
         if (inputLoc && labelLoc) {
-          code += `${cmt}\n${sc}    _checkbox_${n} = ${inputLoc}\n    if ${stateCheck}:\n        ${labelLoc}.click()\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    _checkbox_${n} = ${inputLoc}\n    if ${stateCheck}:\n        ${labelLoc}.click()\n\n`;
         } else if (inputLoc) {
-          code += `${cmt}\n${sc}    ${inputLoc}.${m}(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    ${inputLoc}.${m}(force=True)\n\n`;
         } else {
-          code += `${cmt}\n${sc}    page.get_by_label("${esc(a.text || "")}").${m}(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    page.get_by_label("${esc(a.text || "")}").${m}(force=True)\n\n`;
         }
       } else if (a.elementType === "dropdownOption") {
-        code += `${cmt}\n${sc}    page.get_by_role("option", name="${esc(a.text || a.value || "")}").click()\n\n`;
+        code += `${cmt}\n${sc}${assertCode}    page.get_by_role("option", name="${esc(a.text || a.value || "")}").click()\n\n`;
       } else {
-        code += `${cmt}\n${sc}    ${loc}.click()\n\n`;
+        code += `${cmt}\n${sc}${assertCode}    ${loc}.click()\n\n`;
       }
     } else if (a.command === "type") {
-      code += `${cmt}\n${sc}    ${loc}.fill("${val}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    ${loc}.fill("${val}")\n\n`;
     } else if (a.command === "select") {
-      code += `${cmt}\n${sc}    ${loc}.select_option(label="${val}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    ${loc}.select_option(label="${val}")\n\n`;
     } else if (a.command === "sendKeys") {
       const key = val === "KEY_ENTER" ? "Enter" : val;
-      code += `${cmt}\n${sc}    ${loc}.press("${key}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    ${loc}.press("${key}")\n\n`;
     } else if (a.command === "pause") {
       const ms = parseInt(a.value) || 1000;
-      code += `${cmt}\n    page.wait_for_timeout(${ms})  # ${ms / 1000}s\n\n`;
+      code += `${cmt}\n${assertCode}    page.wait_for_timeout(${ms})  # ${ms / 1000}s\n\n`;
     } else if (a.command === "captureScreenshot") {
-      code += `${cmt}  # capture mode: ${a.value || "always"}\n    page.screenshot(path=${ss})\n\n`;
+      code += `${cmt}  # capture mode: ${a.value || "always"}\n${assertCode}    page.screenshot(path=${ss})\n\n`;
     } else if (a.command === "verifyText") {
-      code += `${cmt}\n${sc}    expect(${loc}).to_contain_text("${val}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    expect(${loc}).to_contain_text("${val}")\n\n`;
     } else if (a.command === "verifyElementPresent") {
-      code += `${cmt}\n${sc}    expect(${loc}).to_be_visible()\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    expect(${loc}).to_be_visible()\n\n`;
     } else if (a.command === "selectWindow") {
-      code += `${cmt}\n    page = context.pages[-1]  # newest tab\n\n`;
+      code += `${cmt}\n${assertCode}    page = context.pages[-1]  # newest tab\n\n`;
     } else if (a.command === "refresh") {
-      code += `${cmt}\n    page.reload()\n\n`;
+      code += `${cmt}\n${assertCode}    page.reload()\n\n`;
     } else {
-      code += `${cmt}\n${sc}    # TODO: handle "${a.command}"\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    # TODO: handle "${a.command}"\n\n`;
     }
   });
 
@@ -288,10 +297,17 @@ function generatePlaywrightPythonAsync(testCase, variables, settings = {}) {
     const loc = buildPlaywrightLocator(a, "py");
     const val = esc(a.value || "");
     const n   = i + 1;
-    const cmt = `    # Step ${n}: ${a.command}${a.text ? ` [${a.text}]` : ""}${a.placeholder ? ` [placeholder: ${a.placeholder}]` : ""}`;
+    const isAssert = !!a.isAssertion;
+    const assertCodeText = isAssert && loc && a.command !== "open" && a.command !== "captureScreenshot" && a.command !== "pause" && a.command !== "verifyText" && a.command !== "verifyElementPresent" ? ` (Assertion)` : "";
+    const cmt = `    # Step ${n}: ${a.command}${a.text ? ` [${a.text}]` : ""}${a.placeholder ? ` [placeholder: ${a.placeholder}]` : ""}${assertCodeText}`;
     const sel = buildSelectorComment(a, "py");
     const sc  = sel ? `${sel}\n` : "";
     const ss  = `os.path.join(SCREENSHOTS_DIR, "step_${n}_screenshot.png")`;
+
+    let assertCode = "";
+    if (isAssert && loc && a.command !== "open" && a.command !== "captureScreenshot" && a.command !== "pause" && a.command !== "verifyText" && a.command !== "verifyElementPresent") {
+      assertCode = `    try:\n        await expect(${loc}).to_be_visible(timeout=5000)\n        print(f"✅ Step ${n}: Assertion passed!")\n    except AssertionError as e:\n        print(f"❌ Step ${n}: Assertion failed! ({e})")\n        raise\n`;
+    }
 
     if (a.command === "open") {
       code += `${cmt}\n${sc}    await page.goto("${esc(a.target)}", wait_until="domcontentloaded", timeout=30000)\n\n`;
@@ -313,24 +329,24 @@ function generatePlaywrightPythonAsync(testCase, variables, settings = {}) {
         const labelLoc = buildRecordedLabelLocator(a);
         const stateCheck = a.value === "off" ? `await _checkbox_${n}.is_checked()` : `not (await _checkbox_${n}.is_checked())`;
         if (inputLoc && labelLoc) {
-          code += `${cmt}\n${sc}    _checkbox_${n} = ${inputLoc}\n    if ${stateCheck}:\n        await ${labelLoc}.click()\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    _checkbox_${n} = ${inputLoc}\n    if ${stateCheck}:\n        await ${labelLoc}.click()\n\n`;
         } else if (inputLoc) {
-          code += `${cmt}\n${sc}    await ${inputLoc}.${m}(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    await ${inputLoc}.${m}(force=True)\n\n`;
         } else {
-          code += `${cmt}\n${sc}    await page.get_by_label("${esc(a.text || "")}").${m}(force=True)\n\n`;
+          code += `${cmt}\n${sc}${assertCode}    await page.get_by_label("${esc(a.text || "")}").${m}(force=True)\n\n`;
         }
       } else if (a.elementType === "dropdownOption") {
-        code += `${cmt}\n${sc}    await page.get_by_role("option", name="${esc(a.text || a.value || "")}").click()\n\n`;
+        code += `${cmt}\n${sc}${assertCode}    await page.get_by_role("option", name="${esc(a.text || a.value || "")}").click()\n\n`;
       } else {
-        code += `${cmt}\n${sc}    await ${loc}.click()\n\n`;
+        code += `${cmt}\n${sc}${assertCode}    await ${loc}.click()\n\n`;
       }
     } else if (a.command === "type") {
-      code += `${cmt}\n${sc}    await ${loc}.fill("${val}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    await ${loc}.fill("${val}")\n\n`;
     } else if (a.command === "select") {
-      code += `${cmt}\n${sc}    await ${loc}.select_option(label="${val}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    await ${loc}.select_option(label="${val}")\n\n`;
     } else if (a.command === "sendKeys") {
       const key = val === "KEY_ENTER" ? "Enter" : val;
-      code += `${cmt}\n${sc}    await ${loc}.press("${key}")\n\n`;
+      code += `${cmt}\n${sc}${assertCode}    await ${loc}.press("${key}")\n\n`;
     } else if (a.command === "pause") {
       const ms = parseInt(a.value) || 1000;
       code += `${cmt}\n    await page.wait_for_timeout(${ms})  # ${ms / 1000}s\n\n`;
@@ -1283,14 +1299,12 @@ const Toolbar = ({
   onExport,
   onAddRow,
   onAddScreenshot,
-  onExportTrace,
-  onExportVideo,
+  
   onOpenVideo,
   onSettings,
   playbackDelay,
   onDelayChange,
 }) => {
-  const [showPyDropdown, setShowPyDropdown] = useState(false);
   return (
   <div className="h-10 bg-[#2b2b2b] border-b border-gray-700 flex items-center px-3 gap-2 justify-between">
     <div className="flex items-center gap-2">
@@ -1365,61 +1379,6 @@ const Toolbar = ({
     </div>
 
     <div className="flex items-center gap-1 relative">
-      {/* ── Python Download Dropdown ── */}
-      <div className="relative">
-        <button
-          onClick={() => setShowPyDropdown(!showPyDropdown)}
-          className="flex items-stretch rounded overflow-hidden border border-blue-700/50 bg-blue-900/30 hover:bg-blue-700/40 text-blue-300 hover:text-blue-200 transition-colors"
-          title="Download Python Script"
-        >
-          <div className="px-2 py-1 flex items-center gap-1.5 text-[10px] font-bold">
-            <Download size={11} />
-            PYTHON
-          </div>
-          <div className="w-px bg-blue-700/40" />
-          <div className="px-1.5 py-1 flex items-center justify-center">
-            <ChevronDown size={10} />
-          </div>
-        </button>
-
-        {showPyDropdown && (
-          <div className="absolute top-full right-0 mt-1 w-36 bg-[#1e1e1e] border border-gray-700 rounded shadow-xl py-1 z-50">
-            <button
-              onClick={() => { setShowPyDropdown(false); onExportTrace(); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-200 hover:bg-blue-900/30 hover:text-blue-300 transition-colors"
-            >
-              <Package size={12} className="text-blue-400" />
-              With Trace (.zip)
-            </button>
-            <button
-              onClick={() => { setShowPyDropdown(false); onExportVideo(); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-200 hover:bg-violet-900/30 hover:text-violet-300 transition-colors"
-            >
-              <Film size={12} className="text-violet-400" />
-              With Video (.webm)
-            </button>
-            <div className="my-1 border-t border-gray-700" />
-            <button
-              onClick={() => { setShowPyDropdown(false); onOpenVideo(); }}
-              className="flex items-center gap-2 w-full px-3 py-2 text-left text-[11px] text-gray-400 hover:bg-gray-800 hover:text-amber-300 transition-colors"
-              title="Open a recorded video file locally"
-            >
-              <FolderOpen size={12} />
-              Open Video File...
-            </button>
-          </div>
-        )}
-        
-        {/* Invisible overlay to close dropdown */}
-        {showPyDropdown && (
-          <div 
-            className="fixed inset-0 z-40" 
-            onClick={() => setShowPyDropdown(false)} 
-          />
-        )}
-      </div>
-
-      <div className="h-3 w-px bg-gray-700 mx-0.5" />
       <button
         onClick={onExport}
         className="p-1.5 hover:bg-gray-700 rounded text-gray-400 hover:text-white transition-colors"
@@ -1735,6 +1694,17 @@ function StepGrid({ actions, playingIndex, onUpdate, onDelete, onReorder }) {
                     />
                   )}
 
+                  {/* Toggle Assertion — never overlapping */}
+                  <button
+                    onClick={() => onUpdate(idx, { isAssertion: !action.isAssertion })}
+                    className={`flex-shrink-0 p-1.5 mr-1 rounded transition-all opacity-0 group-hover:opacity-100 ${
+                      action.isAssertion ? "text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 opacity-100" : "text-gray-500/40 hover:bg-gray-700 hover:text-white"
+                    } ${action.command === "captureScreenshot" || action.command === "pause" ? "hidden" : ""}`}
+                    title={action.isAssertion ? "Assertion enabled (Fails test on error)" : "Make step an assertion"}
+                  >
+                    {action.isAssertion ? <Eye size={12} /> : <EyeOff size={12} />}
+                  </button>
+
                   {/* Delete — always separate, never overlapping */}
                   <button
                     onClick={() => onDelete(idx)}
@@ -1968,60 +1938,6 @@ function SettingsModal({ settings, onSave, onClose }) {
             </div>
           </div>
 
-          {/* ── Section: Output Paths ── */}
-          <div className="border-t border-gray-800/60 pt-5">
-            <div className="flex items-center gap-2 mb-4">
-              <FolderOpen size={12} className="text-amber-400" />
-              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Output Paths</span>
-              <span className="text-[9px] text-gray-600 normal-case font-normal ml-1">— embedded in generated scripts</span>
-            </div>
-            <div className="space-y-4">
-
-              {/* Trace Path */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-bold text-blue-400 flex items-center gap-1.5">
-                    <Package size={10} /> Trace output folder
-                  </label>
-                  {localSettings.enableTracing && (
-                    <span className="text-[9px] text-emerald-500 font-bold">● active</span>
-                  )}
-                </div>
-                <input
-                  className="w-full bg-[#0f0f1c] border border-gray-700/80 focus:border-blue-500 rounded-lg px-3 py-2 text-[12px] text-gray-200 outline-none font-mono placeholder-gray-600 transition-colors"
-                  placeholder="screenshots"
-                  value={localSettings.tracePath || ''}
-                  onChange={(e) => setPath('tracePath', e.target.value)}
-                />
-                <p className="text-[10px] text-gray-600 mt-1">
-                  Folder path where <code className="text-blue-400">trace.zip</code> is saved when the generated script runs. Relative paths are relative to the script file.
-                </p>
-              </div>
-
-              {/* Video Path */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[11px] font-bold text-violet-400 flex items-center gap-1.5">
-                    <Film size={10} /> Video output folder
-                  </label>
-                  {localSettings.recordVideo && (
-                    <span className="text-[9px] text-emerald-500 font-bold">● active</span>
-                  )}
-                </div>
-                <input
-                  className="w-full bg-[#0f0f1c] border border-gray-700/80 focus:border-violet-500 rounded-lg px-3 py-2 text-[12px] text-gray-200 outline-none font-mono placeholder-gray-600 transition-colors"
-                  placeholder="screenshots"
-                  value={localSettings.videoPath || ''}
-                  onChange={(e) => setPath('videoPath', e.target.value)}
-                />
-                <p className="text-[10px] text-gray-600 mt-1">
-                  Folder path where Playwright saves the <code className="text-violet-400">.webm</code> video file. Use the <strong className="text-amber-400">Open Video</strong> toolbar button to view it after running.
-                </p>
-              </div>
-
-            </div>
-          </div>
-
           {/* ── Section: Export Behaviour ── */}
           <div className="border-t border-gray-800/60 pt-5">
             <div className="flex items-center gap-2 mb-3">
@@ -2160,6 +2076,15 @@ export default function App() {
         setPlayingIndex(-1);
         currentAddLog("Playback finished successfully.", "success");
         // Prompt for PDF report if screenshots were captured
+        const ss = message.screenshots || [];
+        if (ss.length > 0) {
+          setReportScreenshots(ss);
+          setShowReport(true);
+        }
+      } else if (message.type === "PLAYBACK_STOPPED") {
+        setIsPlaying(false);
+        setPlayingIndex(-1);
+        currentAddLog("Playback aborted due to assertion failure.", "error");
         const ss = message.screenshots || [];
         if (ss.length > 0) {
           setReportScreenshots(ss);
@@ -2508,8 +2433,7 @@ export default function App() {
         onExport={() => setShowExport(true)}
         onAddRow={() => setShowAddStep(true)}
         onAddScreenshot={addScreenshotStep}
-        onExportTrace={handleExportTrace}
-        onExportVideo={handleExportVideo}
+        
         onOpenVideo={handleOpenVideo}
         playbackDelay={playbackDelay}
         onDelayChange={handleDelayChange}
