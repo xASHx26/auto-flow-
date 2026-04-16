@@ -14,6 +14,7 @@ let testCases = [{ name: "Default Test Case", actions: [] }];
 let selectedTestCase = 0;
 let lastCreatedTabId = null;
 let lastStepStatus = "success"; // tracks last non-screenshot step result
+let assertModeTabId = null;    // tab currently in assert mode
 
 // Track tab creation to help find new windows during playback
 chrome.tabs.onCreated.addListener((tab) => {
@@ -595,8 +596,21 @@ async function executeStep() {
             if (!actualText.includes(value.trim())) {
               throw new Error(`Verification Failed: Expected "${value}" but found "${actualText}"`);
             }
+          } else if (command === "pause") {
+            let ms = 10000;
+            try {
+              const val = String(value || "").toLowerCase().trim();
+              let num = parseFloat(val);
+              if (!isNaN(num)) {
+                if (val.endsWith("min") || val.endsWith("m")) ms = num * 60000;
+                else if (val.endsWith("ms")) ms = num;
+                else if (val.endsWith("s")) ms = num * 1000;
+                else ms = num;
+              }
+            } catch (e) {}
+            await wait(ms);
           }
-          return { success: true, healed: result?.used !== "primary", strategy: result?.used };
+          return { success: true, healed: result?.used !== "primary", strategy: result?.used || "none" };
         },
         args: [action]
       });
@@ -936,6 +950,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     });
     // Reset so the new/switched test case gets a clean "open" step next time recording starts
     lastLoggedUrl = "";
+  }
+
+  if (request.type === "TOGGLE_ASSERT_MODE") {
+    const enabled = !!request.enabled;
+    // Find the content tab to send the toggle to
+    const targetTabId = lastRealTabId;
+    if (targetTabId) {
+      assertModeTabId = enabled ? targetTabId : null;
+      chrome.tabs.sendMessage(targetTabId, { type: "TOGGLE_ASSERT_MODE", enabled }, () => {
+        if (chrome.runtime.lastError) {
+          // If the content script isn't ready, just ignore
+          console.warn("Assert mode toggle failed:", chrome.runtime.lastError.message);
+        }
+      });
+    }
+    sendResponse({ success: true });
+  }
+
+  if (request.type === "ASSERT_MODE_ENDED") {
+    assertModeTabId = null;
+    // Forward to the popup so it resets its isAssertMode state
+    chrome.runtime.sendMessage({ type: "ASSERT_MODE_ENDED" }).catch(() => {});
   }
   if (request.type === "SYNC_ACTIONS") {
     chrome.storage.local.get(["testCases", "selectedTestCase"], (data) => {

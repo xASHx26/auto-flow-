@@ -1,6 +1,8 @@
 (function () {
   let isRecording = false;
+  let isAssertMode = false;
   let lastRightClickedElement = null;
+  let _assertHoveredEl = null;
 
   // ── Deduplication: prevent same action recorded twice within 80ms ──────────
   let _lastRecordKey = "";
@@ -270,6 +272,106 @@
     if (el) el.remove();
   }
 
+  // ── Assert Mode Overlay ───────────────────────────────────────────────────
+  const ASSERT_OUTLINE_STYLE = "3px solid #06b6d4"; // cyan-500
+  const ASSERT_BG_STYLE      = "rgba(6,182,212,0.08)";
+
+  function showAssertBanner() {
+    if (document.getElementById("recorder-assert-banner")) return;
+    const banner = document.createElement("div");
+    banner.id = "recorder-assert-banner";
+    Object.assign(banner.style, {
+      position: "fixed", top: "0", left: "0", right: "0",
+      zIndex: "2147483646",
+      background: "rgba(6,182,212,0.92)",
+      color: "#fff",
+      fontFamily: "system-ui,-apple-system,sans-serif",
+      fontSize: "12px",
+      fontWeight: "700",
+      textAlign: "center",
+      padding: "6px 12px",
+      letterSpacing: "0.04em",
+      pointerEvents: "none",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+      cursor: "crosshair",
+    });
+    banner.textContent = "👁  ASSERT MODE — click any element to add a visibility assertion";
+    document.body.appendChild(banner);
+    document.body.style.cursor = "crosshair";
+  }
+
+  function hideAssertBanner() {
+    const b = document.getElementById("recorder-assert-banner");
+    if (b) b.remove();
+    document.body.style.cursor = "";
+    clearAssertHighlight();
+  }
+
+  function highlightAssertTarget(el) {
+    clearAssertHighlight();
+    if (!el || el === document.body || el === document.documentElement) return;
+    _assertHoveredEl = el;
+    el._assertPrevOutline = el.style.outline;
+    el._assertPrevBg      = el.style.backgroundColor;
+    el._assertPrevCursor  = el.style.cursor;
+    el.style.outline         = ASSERT_OUTLINE_STYLE;
+    el.style.backgroundColor = ASSERT_BG_STYLE;
+    el.style.cursor          = "crosshair";
+  }
+
+  function clearAssertHighlight() {
+    if (_assertHoveredEl) {
+      _assertHoveredEl.style.outline         = _assertHoveredEl._assertPrevOutline || "";
+      _assertHoveredEl.style.backgroundColor = _assertHoveredEl._assertPrevBg      || "";
+      _assertHoveredEl.style.cursor          = _assertHoveredEl._assertPrevCursor  || "";
+      _assertHoveredEl = null;
+    }
+  }
+
+  // Mouseover: highlight hovered element in assert mode
+  document.addEventListener("mouseover", (e) => {
+    if (!isAssertMode) return;
+    highlightAssertTarget(e.target);
+  }, true);
+
+  // Assert-mode click: capture verifyElementPresent + exit assert mode
+  document.addEventListener("click", (e) => {
+    if (!isAssertMode) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.stopImmediatePropagation(); // prevent normal click listener from also firing
+
+    const el = e.composedPath()[0];
+    const selectors  = getSelectors(el);
+    const primaryTarget = selectors.id || selectors.name ||
+      selectors.xpath_relative || selectors.xpath || selectors.css || "";
+    const text = getElementText(el);
+    const label = getLabelText(el);
+    const placeholder = el.getAttribute?.("placeholder") || "";
+
+    // Record the assertion step
+    chrome.runtime.sendMessage({
+      type: "RECORD_ACTION",
+      action: {
+        command: "verifyElementPresent",
+        target: primaryTarget,
+        allSelectors: selectors,
+        value: "",
+        text: label || text || placeholder,
+        placeholder,
+        elementType: getElementType(el),
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    playRecordingSound();
+    // Exit assert mode
+    isAssertMode = false;
+    hideAssertBanner();
+    // Notify popup that assert mode ended
+    chrome.runtime.sendMessage({ type: "ASSERT_MODE_ENDED" });
+  }, true);
+
   document.addEventListener("contextmenu", (e) => {
     lastRightClickedElement = e.target;
   }, true);
@@ -470,7 +572,13 @@
     if (message.type === "STATE_UPDATED") {
       isRecording = message.isRecording;
       if (isRecording) { showIndicator(); if (message.isInitial) recordOpen(); }
-      else hideIndicator();
+      else { hideIndicator(); isAssertMode = false; hideAssertBanner(); }
+    }
+
+    if (message.type === "TOGGLE_ASSERT_MODE") {
+      isAssertMode = message.enabled;
+      if (isAssertMode) showAssertBanner();
+      else hideAssertBanner();
     }
 
     if (message.type === "GET_ELEMENT_INFO") {
