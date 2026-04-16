@@ -29,7 +29,7 @@ import {
   Package,
 } from "lucide-react";
 import { useEffect, useState, useMemo, useRef } from "react";
-import Editor from "@monaco-editor/react";
+// Monaco Editor replaced with lightweight inline renderer (no CSP/worker issues)
 
 // ─────────────────────────────────────────────
 // Playwright / Selenium code generators
@@ -2272,10 +2272,9 @@ export default function App() {
   const [duplicateStepIdx, setDuplicateStepIdx] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(true);
-  const editorRef = useRef(null);
-  const decorationsRef = useRef([]);
+  const codePreviewRef = useRef(null);
 
-  // ── These must be declared BEFORE the useMemo that depends on them ──
+  // ── Must be declared BEFORE the useMemo that depends on them ──
   const [settings, setSettings] = useState({
     enableTracing: false,
     recordVideo: false,
@@ -2297,35 +2296,13 @@ export default function App() {
     return generatePytestPlaywright(testCases[selectedTestCase] || {}, variables, settings, true);
   }, [testCases, selectedTestCase, variables, settings]);
 
+  // Scroll to highlighted step line whenever playingIndex changes
   useEffect(() => {
-    if (!editorRef.current || typeof window === 'undefined' || !window.monaco) return;
-    const editor = editorRef.current;
-    if (playingIndex >= 0 && lineMap[playingIndex]) {
-      const { start, end } = lineMap[playingIndex];
-      const newDecorations = [{
-        range: new window.monaco.Range(start, 1, end, 1),
-        options: { isWholeLine: true, className: "step-highlight-active" }
-      }];
-      if (editor.createDecorationsCollection) {
-        if (!decorationsRef.current.set) { decorationsRef.current = editor.createDecorationsCollection(newDecorations); }
-        else { decorationsRef.current.set(newDecorations); }
-      } else {
-        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, newDecorations);
-      }
-      editor.revealLineInCenter(start);
-    } else {
-      if (editor.createDecorationsCollection) {
-        if (decorationsRef.current.clear) decorationsRef.current.clear();
-      } else {
-        decorationsRef.current = editor.deltaDecorations(decorationsRef.current, []);
-      }
-    }
+    if (!codePreviewRef.current || playingIndex < 0 || !lineMap[playingIndex]) return;
+    const { start } = lineMap[playingIndex];
+    const lineEl = codePreviewRef.current.querySelector(`[data-line="${start}"]`);
+    if (lineEl) lineEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }, [playingIndex, lineMap]);
-  
-  const handleEditorDidMount = (editor, monaco) => {
-    editorRef.current = editor;
-    window.monaco = monaco;
-  };
 
 
   useEffect(() => {
@@ -2812,6 +2789,8 @@ export default function App() {
         playbackDelay={playbackDelay}
         onDelayChange={handleDelayChange}
         onSettings={() => setShowSettings(true)}
+        showCodePreview={showCodePreview}
+        onToggleCodePreview={() => setShowCodePreview((v) => !v)}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -2823,25 +2802,100 @@ export default function App() {
           onLoad={loadTestsFromFile}
         />
 
-        <div className="flex-1 flex flex-col overflow-hidden border-l border-gray-800">
-          <StepGrid
-            actions={actions}
-            playingIndex={playingIndex}
-            onUpdate={updateAction}
-            onDelete={deleteAction}
-            onReorder={reorderAction}
-            onDuplicate={(idx) => setDuplicateStepIdx(idx)}
-          />
-          <UtilityPanel
-            activeTab={activeTab}
-            onTabSelect={setActiveTab}
-            logs={logs}
-            variables={variables}
-            screenshots={screenshots}
-            onUpdateVariable={updateVariable}
-            onDeleteVariable={deleteVariable}
-            onAddVariable={addVariable}
-          />
+        <div className="flex-1 flex overflow-hidden border-l border-gray-800">
+          {/* Step Grid + Utility stacked vertically */}
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+            <StepGrid
+              actions={actions}
+              playingIndex={playingIndex}
+              onUpdate={updateAction}
+              onDelete={deleteAction}
+              onReorder={reorderAction}
+              onDuplicate={(idx) => setDuplicateStepIdx(idx)}
+            />
+            <UtilityPanel
+              activeTab={activeTab}
+              onTabSelect={setActiveTab}
+              logs={logs}
+              variables={variables}
+              screenshots={screenshots}
+              onUpdateVariable={updateVariable}
+              onDeleteVariable={deleteVariable}
+              onAddVariable={addVariable}
+            />
+          </div>
+
+          {/* ── Live Code Preview Panel ── */}
+          {showCodePreview && (
+            <div className="w-[420px] shrink-0 flex flex-col border-l border-gray-700 bg-[#1e1e1e]">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-[#252525] border-b border-gray-700 shrink-0">
+                <div className="flex items-center gap-2">
+                  <Terminal size={11} className="text-blue-400" />
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Live Code Preview</span>
+                </div>
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-900/30 border border-emerald-700/40 px-1.5 py-0.5 rounded font-mono">pytest</span>
+              </div>
+              <div
+                ref={codePreviewRef}
+                className="flex-1 overflow-auto"
+                style={{ background: "#1e1e1e", fontFamily: "Consolas, 'Courier New', monospace", fontSize: 11, lineHeight: "18px" }}
+              >
+                {previewCode.split("\n").map((rawLine, i) => {
+                  const lineNum = i + 1;
+                  const active = playingIndex >= 0 && lineMap[playingIndex] &&
+                    lineNum >= lineMap[playingIndex].start && lineNum <= lineMap[playingIndex].end;
+                  // Lightweight Python token colouring
+                  let coloured = rawLine.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                  
+                  // Extract strings to prevent inner highlighting
+                  const strings = [];
+                  coloured = coloured.replace(/("[^"]*"|'[^']*')/g, (m) => {
+                    strings.push(m);
+                    return `__STR${strings.length - 1}__`;
+                  });
+
+                  // Extract comments
+                  const comments = [];
+                  coloured = coloured.replace(/(#[^\n]*)/g, (m) => {
+                    comments.push(m);
+                    return `__COM${comments.length - 1}__`;
+                  });
+
+                  // Format keywords and numbers
+                  coloured = coloured
+                    .replace(/\b(def|import|from|return|if|else|elif|for|in|with|as|not|and|or|True|False|None|await|async|pass|raise|try|except|finally)\b/g,
+                      '<span style="color:#569CD6">$1</span>')
+                    .replace(/\b(page|context|browser|expect|pytest)\b/g,
+                      '<span style="color:#4EC9B0">$1</span>')
+                    .replace(/\b(\d+)\b/g, '<span style="color:#B5CEA8">$1</span>');
+
+                  // Restore comments and strings with formatting
+                  coloured = coloured.replace(/__COM(\d+)__/g, (_, i) => `<span style="color:#6A9955">${comments[i]}</span>`);
+                  coloured = coloured.replace(/__STR(\d+)__/g, (_, i) => `<span style="color:#CE9178">${strings[i]}</span>`);
+                  return (
+                    <div
+                      key={i}
+                      data-line={lineNum}
+                      style={{
+                        display: "flex",
+                        background: active ? "rgba(16,185,129,0.15)" : "transparent",
+                        borderLeft: active ? "2px solid #10b981" : "2px solid transparent",
+                        transition: "background 0.2s",
+                      }}
+                    >
+                      <span style={{ minWidth: 36, textAlign: "right", paddingRight: 10, color: active ? "#10b981" : "#3c3c3c", userSelect: "none", flexShrink: 0 }}>
+                        {lineNum}
+                      </span>
+                      <span
+                        style={{ flex: 1, whiteSpace: "pre", color: active ? "#d4fce9" : "#d4d4d4", paddingRight: 8 }}
+                        dangerouslySetInnerHTML={{ __html: coloured || " " }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
