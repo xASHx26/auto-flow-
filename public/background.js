@@ -16,6 +16,11 @@ let lastCreatedTabId = null;
 let lastStepStatus = "success"; // tracks last non-screenshot step result
 let assertModeTabId = null;    // tab currently in assert mode
 
+// --- Inspector Capture Structures ---
+let networkRequests = {}; 
+let networkLogs = [];
+let consoleLogs = [];
+
 // Track tab creation to help find new windows during playback
 chrome.tabs.onCreated.addListener((tab) => {
   if (isPlaying) lastCreatedTabId = tab.id;
@@ -712,12 +717,89 @@ function scheduleNextStep() {
 function stopPlayback() {
   isPlaying = false;
   currentStepIndex = -1;
+  const pbTab = playbackTabId;
   playbackTabId = null;
   lastStepStatus = "success";
   stopHeartbeat();
   broadcastPlaybackStep(-1);
-  chrome.runtime.sendMessage({ type: "PLAYBACK_FINISHED", screenshots }).catch(() => {});
+  chrome.runtime.sendMessage({ 
+    type: "PLAYBACK_FINISHED", 
+    screenshots, 
+    networkLogs, 
+    consoleLogs 
+  }).catch(() => {});
+
+  if (pbTab) {
+    try {
+      chrome.debugger.detach({ tabId: pbTab }, () => {
+        const _e = chrome.runtime.lastError;
+      });
+    } catch(e) {}
+  }
 }
+
+// Global CDP event handler
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (!isPlaying || source.tabId !== playbackTabId) return;
+
+  if (method === "Runtime.consoleAPICalled") {
+    // Determine color/type mapped to UI
+    let mappedType = "info";
+    if (params.type === "error") mappedType = "error";
+    else if (params.type === "warning") mappedType = "warning";
+    
+    // Extract text from remote objects
+    const text = params.args 
+       ? params.args.map(a => a.value !== undefined ? a.value : (a.description || "")).join(" ")
+       : "";
+       
+    const logEntry = { type: mappedType, text: `[Console] ${text}`, time: new Date().toLocaleTimeString() };
+    consoleLogs.push(logEntry);
+    chrome.runtime.sendMessage({ type: "CDP_CONSOLE", log: logEntry }).catch(() => {});
+  }
+
+  if (method === "Network.requestWillBeSent") {
+    // Only capture http/https, ignore data URIs / chrome extensions to save memory
+    if (params.request.url && !params.request.url.startsWith("http")) return;
+
+    networkRequests[params.requestId] = {
+      url: params.request.url,
+      method: params.request.method,
+      requestPayload: params.request.hasPostData ? params.request.postData : null,
+      status: "Loading...",
+      mimeType: "",
+      responseBody: null
+    };
+  }
+
+  if (method === "Network.responseReceived") {
+    const req = networkRequests[params.requestId];
+    if (req) {
+      req.status = params.response.status;
+      if (params.response.mimeType) req.mimeType = params.response.mimeType;
+    }
+  }
+
+  if (method === "Network.loadingFinished") {
+    const req = networkRequests[params.requestId];
+    if (req) {
+      chrome.debugger.sendCommand(
+        { tabId: source.tabId },
+        "Network.getResponseBody",
+        { requestId: params.requestId },
+        (res) => {
+           // If we fail to get body, just leave it null
+           if (!chrome.runtime.lastError && res) {
+             req.responseBody = res.body;
+           }
+           networkLogs.push(req);
+           chrome.runtime.sendMessage({ type: "CDP_NETWORK", log: req }).catch(() => {});
+           delete networkRequests[params.requestId];
+        }
+      );
+    }
+  }
+});
 
 // --- Window & Message management ---
 
@@ -792,14 +874,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       const startUrl = firstOpen ? firstOpen.target : "about:blank";
 
       try {
-        const tab = await chrome.tabs.create({ url: startUrl });
+        const tab = await chrome.tabs.create({ url: "about:blank" });
         playbackTabId = tab.id;
         
-        if (steps[0].command === 'open') {
-          await waitForTabComplete(playbackTabId);
-        }
-        executeStep();
-        sendResponse({ success: true });
+        networkRequests = {};
+        networkLogs = [];
+        consoleLogs = [];
+
+        chrome.storage.local.get(["extensionSettings"], async (sData) => {
+          const s = sData.extensionSettings || {};
+          const enableCapture = s.enableNetworkConsole !== false; // Default true or based on target
+          
+          if (enableCapture) {
+            try {
+              await new Promise((resolve, reject) => {
+                chrome.debugger.attach({ tabId: playbackTabId }, "1.3", () => {
+                  if (chrome.runtime.lastError) reject(chrome.runtime.lastError);
+                  else resolve();
+                });
+              });
+              await new Promise(r => chrome.debugger.sendCommand({ tabId: playbackTabId }, "Network.enable", {}, r));
+              await new Promise(r => chrome.debugger.sendCommand({ tabId: playbackTabId }, "Runtime.enable", {}, r));
+            } catch (e) {
+              console.warn("Could not attach debugger for Network/Console tracing:", e.message);
+            }
+          }
+
+          if (startUrl !== "about:blank") {
+             await chrome.tabs.update(playbackTabId, { url: startUrl });
+          }
+
+          if (steps[0].command === 'open') {
+            await waitForTabComplete(playbackTabId);
+          }
+          executeStep();
+          sendResponse({ success: true });
+        });
+
       } catch (err) {
         sendResponse({ success: false, error: err.message });
         stopPlayback();

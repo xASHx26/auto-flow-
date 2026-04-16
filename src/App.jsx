@@ -27,6 +27,7 @@ import {
   EyeOff,
   Clock,
   Package,
+  Globe,
 } from "lucide-react";
 import { useEffect, useState, useMemo, useRef } from "react";
 // Monaco Editor replaced with lightweight inline renderer (no CSP/worker issues)
@@ -1203,7 +1204,7 @@ tr:nth-child(even) { background:rgba(255,255,255,.02); }
 }
 </style></head><body>
 <button class="print-btn" onclick="window.print()">🖨 Save as PDF</button>
-<div class="header"><h1>🤖 Automation Report</h1><h2>${testCase.name}</h2><div class="meta">Generated: ${now.toLocaleString()} &nbsp;|&nbsp; Steps: ${total}</div></div>
+<div class="header"><h1>🤖 Automation Report</h1><h2>${testCase.name}</h2><div class="meta">Generated: ${new Date().toLocaleString()} &nbsp;|&nbsp; Steps: ${total}</div></div>
 <div class="stats">
   <div class="stat stat-t"><span class="stat-num">${total}</span><span class="stat-label">Total</span></div>
   <div class="stat stat-p"><span class="stat-num">${passed}</span><span class="stat-label">Passed</span></div>
@@ -1219,7 +1220,7 @@ ${screenshots.length > 0 ? `<div class="ss-title">📸 Screenshots (${screenshot
 // Report Prompt Modal
 // ─────────────────────────────────────────────
 
-function ReportModal({ testCase, screenshots, actions, settings, onClose, onClearScreenshots }) {
+function ReportModal({ testCase, screenshots, actions, settings, consoleLogs, networkLogs, onClose, onClearScreenshots }) {
   const generate = () => {
     const html = buildHTMLReport(testCase, screenshots, actions);
     const w = window.open("", "_blank");
@@ -1235,32 +1236,60 @@ function ReportModal({ testCase, screenshots, actions, settings, onClose, onClea
     const actionsWithStatus = actions.map((a, i) => ({ ...a }));
     // Build a test-case copy that includes the run-time statuses
     const enrichedTC = { ...testCase, actions: actionsWithStatus };
-    const md = generateMarkdownPrompt(enrichedTC, {}, screenshots, settings);
+    let md = generateMarkdownPrompt(enrichedTC, {}, screenshots, settings);
+
+    if (consoleLogs?.length > 0) {
+      md += `
+
+## Console Logs
+\`\`\`text
+`;
+      consoleLogs.forEach(c => md += `[${c.time}] ${c.type.toUpperCase()}: ${c.text}\n`);
+      md += `\`\`\`\n`;
+    }
+
+    if (networkLogs?.length > 0) {
+      md += `
+
+## Network Intercepts
+`;
+      networkLogs.forEach((req, i) => {
+        md += `
+### Request ${i+1}: ${req.method} \`${req.url}\`
+- **Status**: ${req.status || "?"}
+`;
+        if (req.requestPayload) md += `- **Payload**: \`${req.requestPayload}\`\n`;
+        if (req.responseBody) {
+          md += `<details><summary>Response Body (Expand)</summary>\n\n\`\`\`json\n${req.responseBody}\n\`\`\`\n</details>\n`;
+        }
+      });
+    }
+
     const blob = new Blob([md], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(testCase.name || "test").replace(/\s+/g, "_")}_report.md`;
+    a.download = `${(testCase?.name || "test").replace(/\\s+/g, "_")}_report.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const skip = () => {
-    const keep = confirm("Keep the screenshots in the Screenshots panel?\n\nOK = Keep  |  Cancel = Delete");
+    const keep = confirm("Keep the screenshots in the Screenshots panel?\\n\\nOK = Keep  |  Cancel = Delete");
     if (!keep) onClearScreenshots();
     onClose();
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="bg-[#1e1e2e] border border-violet-800/50 rounded-2xl shadow-2xl w-[440px] p-6">
+      <div className="bg-[#1e1e2e] border border-violet-800/50 rounded-2xl shadow-2xl w-[440px] p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 bg-violet-600/20 rounded-xl">
             <FileText size={22} className="text-violet-400" />
           </div>
           <div>
             <h2 className="text-sm font-bold text-white">Playback Complete!</h2>
-            <p className="text-[11px] text-gray-400 mt-0.5">Generate a PDF report with screenshots?</p>
+            <p className="text-[11px] text-gray-400 mt-0.5">Generate a report with screenshots and inspector traces?</p>
           </div>
         </div>
 
@@ -1276,8 +1305,14 @@ function ReportModal({ testCase, screenshots, actions, settings, onClose, onClea
           </div>
         )}
 
-        <div className="text-[11px] text-gray-500 mb-5">
-          {screenshots.length} screenshot{screenshots.length !== 1 ? "s" : ""} captured &nbsp;·&nbsp; {actions.length} steps
+        <div className="text-[11px] text-gray-400 mb-5 flex flex-col gap-1">
+          <div><strong className="text-gray-200">{screenshots.length}</strong> screenshots captured &nbsp;·&nbsp; <strong className="text-gray-200">{actions.length}</strong> steps executed</div>
+          {(networkLogs?.length > 0 || consoleLogs?.length > 0) && (
+            <div className="flex gap-3 mt-1">
+              {networkLogs?.length > 0 && <span className="bg-emerald-900/30 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded-full">{networkLogs.length} Network calls recorded</span>}
+              {consoleLogs?.length > 0 && <span className="bg-blue-900/30 text-blue-400 border border-blue-800 px-2 py-0.5 rounded-full">{consoleLogs.length} Console traces recorded</span>}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 justify-end flex-wrap">
@@ -1299,7 +1334,7 @@ function ReportModal({ testCase, screenshots, actions, settings, onClose, onClea
             className="flex items-center gap-2 px-4 py-2 rounded-lg text-[11px] font-bold bg-violet-600 hover:bg-violet-500 text-white transition-colors"
           >
             <FileText size={13} />
-            Generate PDF Report
+            Generate PDF
           </button>
         </div>
       </div>
@@ -2103,6 +2138,8 @@ function UtilityPanel({
   logs,
   variables,
   screenshots,
+  consoleLogs = [],
+  networkLogs = [],
   onUpdateVariable,
   onDeleteVariable,
   onAddVariable,
@@ -2114,18 +2151,22 @@ function UtilityPanel({
         { id: "log", icon: Terminal, label: "Log" },
         { id: "screenshots", icon: ImageIcon, label: "Screenshots" },
         { id: "variables", icon: Variable, label: "Variables" },
+        { id: "console", icon: Terminal, label: "Console" },
+        { id: "network", icon: Globe, label: "Network" },
       ].map((tab) => (
         <button
           key={tab.id}
           onClick={() => onTabSelect(tab.id)}
-          className={`flex items-center gap-1.5 px-4 py-1.5 text-[10px] font-bold uppercase transition-all border-b-2 mt-1 mx-0.5 rounded-t ${
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[10px] font-bold uppercase transition-all border-b-2 mt-1 mx-0.5 rounded-t ${
             activeTab === tab.id
               ? "bg-[#1c1c1c] text-blue-400 border-blue-500"
               : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-white/5"
           }`}
         >
           <tab.icon size={10} />
-          {tab.label}
+          <span className="hidden sm:inline">{tab.label}</span>
+          {tab.id === "console" && consoleLogs.length > 0 && <span className="ml-0.5 bg-blue-900/50 text-[8px] px-1 rounded">{consoleLogs.length}</span>}
+          {tab.id === "network" && networkLogs.length > 0 && <span className="ml-0.5 bg-emerald-900/50 text-[8px] px-1 rounded">{networkLogs.length}</span>}
         </button>
       ))}
     </div>
@@ -2171,7 +2212,7 @@ function UtilityPanel({
       )}
 
       {activeTab === "variables" && (
-        <div className="space-y-1">
+        <div className="space-y-1 w-full max-w-[800px]">
           <table className="w-full text-left">
             <thead>
               <tr className="text-gray-600 border-b border-gray-800">
@@ -2217,6 +2258,64 @@ function UtilityPanel({
                   </button>
                 </td>
               </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {activeTab === "console" && (
+        <div className="space-y-0.5 font-mono text-[9px]">
+          {consoleLogs.length === 0 && <div className="text-gray-700 italic">No console logs captured during this session.</div>}
+          {consoleLogs.map((log, i) => (
+            <div key={i} className={`flex gap-2.5 px-1 py-0.5 hover:bg-white/5 rounded ${log.type === "error" ? "text-red-400 font-bold" : log.type === "warning" ? "text-amber-400" : "text-gray-400"}`}>
+              <span className="opacity-40 shrink-0">[{log.time}]</span>
+              <span className="whitespace-pre-wrap flex-1 break-all">{log.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab === "network" && (
+        <div className="space-y-1 w-full max-w-[1200px]">
+          <table className="w-full text-left font-mono text-[9px] border-collapse">
+            <thead>
+              <tr className="text-gray-600 border-b border-gray-800 bg-[#222]">
+                <th className="pb-1 px-2 w-12 pt-1">Method</th>
+                <th className="pb-1 px-2 w-12 pt-1">Status</th>
+                <th className="pb-1 px-2 w-[180px] pt-1">Endpoint</th>
+                <th className="pb-1 px-2 pt-1">Involved Payloads (Click to Expand)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {networkLogs.length === 0 ? (
+                 <tr><td colSpan="4" className="text-center py-4 italic text-gray-700">No network requests captured using Inspector.</td></tr>
+              ) : networkLogs.map((req, i) => {
+                 let displayUrl = req.url;
+                 try { const u = new URL(req.url); displayUrl = u.pathname + u.search; } catch(e){}
+                 return (
+                <tr key={i} className="group border-b border-gray-900/40 align-top">
+                   <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${req.method === 'GET' ? 'bg-blue-900/50 text-blue-400' : 'bg-emerald-900/50 text-emerald-400'}`}>{req.method}</span></td>
+                   <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded text-[8px] font-bold ${typeof req.status === 'number' && req.status >= 400 ? 'bg-red-900/50 text-red-100' : typeof req.status === 'number' && req.status >= 200 ? 'bg-emerald-900/50 text-emerald-200' : 'bg-gray-800 text-gray-400'}`}>{req.status || "?"}</span></td>
+                   <td className="px-2 py-1.5 text-gray-300 font-bold max-w-[200px]">
+                     <div className="truncate w-full" title={req.url}>{displayUrl}</div>
+                   </td>
+                   <td className="px-2 py-1.5 text-[9px] flex flex-col gap-1 max-w-[500px]">
+                      {req.requestPayload ? (
+                        <details className="cursor-pointer">
+                           <summary className="text-orange-400/80 hover:text-orange-300 font-bold outline-none flex gap-2">Request Payload</summary>
+                           <div className="p-1.5 mt-1 mb-2 bg-black/60 border border-gray-800 text-orange-200/80 whitespace-pre-wrap break-all rounded max-h-32 overflow-y-auto">{typeof req.requestPayload === "string" ? req.requestPayload : JSON.stringify(req.requestPayload, null, 2)}</div>
+                        </details>
+                      ) : <span className="text-gray-700 italic">No request payload</span>}
+                      {req.responseBody ? (
+                        <details className="cursor-pointer">
+                           <summary className="text-emerald-500/80 hover:text-emerald-400 font-bold outline-none flex gap-2 w-max">Response Body <span className="text-[7px] text-emerald-800 border-emerald-900 border px-1 rounded-sm mt-[2px]">{req.mimeType}</span></summary>
+                           <div className="p-1.5 mt-1 bg-black/60 border border-gray-800 text-emerald-200/80 whitespace-pre-wrap break-all rounded max-h-32 overflow-y-auto">{req.responseBody.substring(0, 5000)}{req.responseBody.length > 5000 ? "... (truncated)" : ""}</div>
+                        </details>
+                      ) : <span className="text-gray-700 italic">No response body</span>}
+                   </td>
+                </tr>
+                 )
+              })}
             </tbody>
           </table>
         </div>
@@ -2310,6 +2409,27 @@ function SettingsModal({ settings, onSave, onClose }) {
             </div>
           </div>
 
+          {/* ── Section: Capture & Inspector Options ── */}
+          <div className="border-t border-gray-800/60 pt-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Globe size={12} className="text-orange-400" />
+              <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest">Live Inspector Tracing</span>
+            </div>
+
+            <div className="flex items-start gap-3 p-3 rounded-xl bg-orange-950/20 border border-orange-800/30 hover:border-orange-700/40 transition-colors">
+              <Toggle checked={localSettings.enableNetworkConsole !== false} onChange={() => toggle('enableNetworkConsole')} colorClass="bg-orange-600" />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] font-bold text-orange-200">Capture Network & Console</span>
+                  <span className="px-1.5 py-0.5 bg-orange-800/50 text-orange-300 text-[9px] rounded font-mono">debugger</span>
+                </div>
+                <p className="text-[10px] text-gray-500 leading-snug mt-1">
+                  Enables the Chrome internal CDP debugger during playback to trace <code className="text-orange-400 bg-black/20 px-1 rounded">Network</code> payloads internally and expose them inside the <code className="text-orange-400 bg-black/20 px-1 rounded">Utility Panel</code> and `ReportModal`. 
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* ── Section: Export Behaviour ── */}
           <div className="border-t border-gray-800/60 pt-5">
             <div className="flex items-center gap-2 mb-3">
@@ -2382,8 +2502,12 @@ export default function App() {
     tracePath: 'screenshots',
     videoPath: 'screenshots',
     askForLocation: false,
+    enableNetworkConsole: true,
   });
   const [reportScreenshots, setReportScreenshots] = useState([]);
+  const [consoleLogs, setConsoleLogs] = useState([]);
+  const [networkLogs, setNetworkLogs] = useState([]);
+
   const [isAssertMode, setIsAssertMode] = useState(false);
   const [logs, setLogs] = useState([
     {
@@ -2481,7 +2605,9 @@ export default function App() {
         currentAddLog("Playback finished successfully.", "success");
         // Prompt for PDF report if screenshots were captured
         const ss = message.screenshots || [];
-        if (ss.length > 0) {
+        setConsoleLogs(message.consoleLogs || []);
+        setNetworkLogs(message.networkLogs || []);
+        if (ss.length > 0 || (message.consoleLogs && message.consoleLogs.length > 0) || (message.networkLogs && message.networkLogs.length > 0)) {
           setReportScreenshots(ss);
           setShowReport(true);
         }
@@ -2489,13 +2615,19 @@ export default function App() {
         setIsPlaying(false);
         setPlayingIndex(-1);
         currentAddLog("Playback aborted due to assertion failure.", "error");
+        setConsoleLogs(message.consoleLogs || []);
+        setNetworkLogs(message.networkLogs || []);
         const ss = message.screenshots || [];
-        if (ss.length > 0) {
+        if (ss.length > 0 || (message.consoleLogs && message.consoleLogs.length > 0) || (message.networkLogs && message.networkLogs.length > 0)) {
           setReportScreenshots(ss);
           setShowReport(true);
         }
       } else if (message.type === "LOG_ENTRY") {
         currentAddLog(message.log.message, message.log.type);
+      } else if (message.type === "CDP_CONSOLE") {
+        setConsoleLogs((prev) => [...prev, message.log]);
+      } else if (message.type === "CDP_NETWORK") {
+        setNetworkLogs((prev) => [...prev, message.log]);
       } else if (message.type === "VARIABLES_UPDATED") {
         setVariables(message.variables);
       } else if (message.type === "SCREENSHOT_CAPTURED") {
@@ -2549,6 +2681,8 @@ export default function App() {
     // Clear screenshots in UI for fresh run
     setScreenshots([]);
     setReportScreenshots([]);
+    setConsoleLogs([]);
+    setNetworkLogs([]);
     chrome.runtime.sendMessage({ type: "CLEAR_SCREENSHOTS" });
     chrome.storage.local.set({ actions: resetActions }, () => {
       chrome.runtime.sendMessage(
@@ -2881,6 +3015,8 @@ export default function App() {
           screenshots={reportScreenshots}
           actions={actions}
           settings={settings}
+          consoleLogs={consoleLogs}
+          networkLogs={networkLogs}
           onClose={() => setShowReport(false)}
           onClearScreenshots={clearScreenshots}
         />
@@ -2932,6 +3068,8 @@ export default function App() {
               logs={logs}
               variables={variables}
               screenshots={screenshots}
+              consoleLogs={consoleLogs}
+              networkLogs={networkLogs}
               onUpdateVariable={updateVariable}
               onDeleteVariable={deleteVariable}
               onAddVariable={addVariable}

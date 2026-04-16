@@ -10,7 +10,8 @@
     "scripting",
     "alarms",
     "contextMenus",
-    "downloads"
+    "downloads",
+    "debugger"
   ],
   "host_permissions": [
     "<all_urls>"
