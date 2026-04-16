@@ -382,6 +382,20 @@ async function executeStep() {
             const selector = parts.slice(1).join("=");
 
             function querySelectorDeep(sel, root = document) {
+              if (sel.includes('>>>')) {
+                const parts = sel.split('>>>').map(p => p.trim());
+                let current = root;
+                for (let i = 0; i < parts.length; i++) {
+                  current = querySelectorDeep(parts[i], current);
+                  if (!current) return null;
+                  if (i < parts.length - 1) {
+                    if (!current.shadowRoot) return null;
+                    current = current.shadowRoot;
+                  }
+                }
+                return current;
+              }
+
               let res = root.querySelector(sel);
               if (res) return res;
               for (const node of root.querySelectorAll('*')) {

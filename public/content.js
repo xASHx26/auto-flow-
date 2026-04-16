@@ -101,28 +101,40 @@
   }
 
   function getCSSSelector(el) {
-    if (el.id) return `#${CSS.escape(el.id)}`;
-    if (el === document.body) return "body";
-    const path = [];
-    while (el && el.nodeType === Node.ELEMENT_NODE) {
-      let selector = el.nodeName.toLowerCase();
-      if (el.id) {
-        selector += `#${CSS.escape(el.id)}`;
-        path.unshift(selector);
-        break;
-      } else {
-        let sibling = el;
-        let nth = 1;
-        while (sibling.previousElementSibling) {
-          sibling = sibling.previousElementSibling;
-          if (sibling.nodeName.toLowerCase() === selector) nth++;
+    function getPathForRoot(node) {
+      if (node.id) return `#${CSS.escape(node.id)}`;
+      if (node === document.body) return "body";
+      const p = [];
+      let current = node;
+      while (current && current.nodeType === Node.ELEMENT_NODE) {
+        let sel = current.nodeName.toLowerCase();
+        if (current.id) {
+          sel += `#${CSS.escape(current.id)}`;
+          p.unshift(sel);
+          break;
+        } else {
+          let sibling = current;
+          let nth = 1;
+          while (sibling.previousElementSibling) {
+            sibling = sibling.previousElementSibling;
+            if (sibling.nodeName.toLowerCase() === sel) nth++;
+          }
+          if (nth !== 1) sel += `:nth-of-type(${nth})`;
         }
-        if (nth !== 1) selector += `:nth-of-type(${nth})`;
+        p.unshift(sel);
+        current = current.parentNode;
       }
-      path.unshift(selector);
-      el = el.parentNode;
+      return p.join(" > ");
     }
-    return path.join(" > ");
+
+    let result = getPathForRoot(el);
+    let currentRoot = el.getRootNode();
+    while (currentRoot && currentRoot.nodeType === Node.DOCUMENT_FRAGMENT_NODE && currentRoot.host) {
+      const hostPath = getPathForRoot(currentRoot.host);
+      result = `${hostPath} >>> ${result}`;
+      currentRoot = currentRoot.host.getRootNode();
+    }
+    return result;
   }
 
   function getSelectors(el) {
