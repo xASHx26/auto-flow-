@@ -6,73 +6,98 @@
 
 ---
 
-## 0. Current Session Notes: What We Done
+## 0. Last Thing We Did (Resume Here)
 
-Recent work has significantly leveled up the tool from a basic step recorder to a professional-grade testing environment:
+**BUG: Broken Layout after `react-resizable-panels` Integration**
 
-- **Shadow DOM Piercing:** 
-  - Overhauled `getCSSSelector` in `content.js` to traverse shadow roots (`getRootNode().host`).
-  - Generated and executed Playwright's native `>>>` piercing token.
-  - Updated `querySelectorDeep` in `background.js` to natively parse `>>>` and drill through encapsulated web components iteratively during playback.
-- **Pytest-Playwright Export:**
-  - Designed a new `generatePytestPlaywright` exporter emitting structured CI/CD-ready test files via `@pytest.fixture` and the `page: Page` convention.
-  - Positioned Pytest as the primary default export tab.
-- **Live Code Preview (Monaco Editor):**
-  - Integrated `@monaco-editor/react` as a dynamic split-pane panel next to the Step Grid.
-  - Upgraded the Pytest generator to calculate an exact `lineMap` (start/end lines) for every generated syntax block relative to its playback action step.
-  - Connected the `playingIndex` listener to Monaco's `createDecorationsCollection()` engine, deploying a custom emerald-green CSS class (`.step-highlight-active`) that dances along the Python code in real-time as background execution proceeds.
-
----
-
-## 1. What Problems We Faced
-
-- **AST Code Hallucination Limits on Large Files:**
-  - *Problem:* Applying massive, multi-chunk modifications to the ~2800 line `App.jsx` via generic LLM string substitution tools triggered corrupted insertions (straggling braces, misplaced `export` statements, and contextually blind pastes).
-  - *Solution:* Instantly pivoted to writing custom deterministic Python deployment scripts (`patch_app.py`). Setting literal variable boundaries allowed us to safely hot-patch deeply nested React structures flawlessly and systematically.
-- **Monaco Dependency Syncing:**
-  - *Problem:* Syncing the actively running background state (`playingIndex`) to the virtual layout of Monaco Editor dynamically without causing intense application re-renders. 
-  - *Solution:* Memoized code generation payloads (`previewCode`, `lineMap`) and used pure vanilla `editorRef.current.deltaDecorations` bypassing React tree reconciliations altogether, relying on CSS injects (`!important`) to handle block highlighting.
-- **Shadow Root Execution Contexts:**
-  - *Solution:* Split all recorded paths logically by `>>>` syntax mapping, and recursively utilized `.shadowRoot.querySelector` loop descents to establish the end-node context before attempting standard Playwright executions.
-
-- **URGENT CRASH: Black Screen on Boot (Vite `ReferenceError`)**
-  - *Problem:* A fatal runtime error (`Uncaught ReferenceError: Cannot access 'F' before initialization`) is currently crashing the compiled React UI (`index.js`), completely resulting in a black screen. This appears to be a variable hoisting, ESBuild minifier circular dependency, or top-level const initialization issue introduced by our latest `App.jsx` layout or syntax configurations.
-  - *Status:* **OPEN / CRITICAL BLOCKER**. The very first task for the next agent is to debug this transpilation error resulting from `npm run build` and restore functionality to the popup!
+- ⚠️ **Immediate Next Step**: The UI layout is currently incorrect. The user wants the original layout restored (as seen in their old screenshots).
+  - **Issue 1**: The `Test Explorer` sidebar collapses to a tiny sliver on the left.
+  - **Issue 2**: The center `<PanelGroup direction="vertical">` is erroneously rendering side-by-side (horizontally) instead of top-and-bottom. The `UtilityPanel` is stuck on the right of the `StepGrid`.
+  - **Target Layout**:
+    1. **Left pane**: Test Explorer
+    2. **Middle pane (Vertical)**: `StepGrid` on top, `UtilityPanel` on the bottom.
+    3. **Right pane**: Live Code Preview
+- 💡 **Clues**:
+  - The drag handles were fixed in the last interaction (by correctly exporting `<PanelResizeHandle>`), so dragging logic works.
+  - The flexbox directions might be missing. Ensure `<PanelGroup direction="vertical">` has `flex-direction: column` explicitly set (via Tailwind `flex-col` or similar) and `Panel` constraints are configured correctly so they do not collapse.
 
 ---
 
-## 2. Future Plan For Now For Next Agent
+## 1. What We've Done (This Session)
 
-Your primary focus should now pivot towards advanced networking capabilities, flow robustness, and multi-thread architectures. 
+### Network & Console Interception via Chrome Debugger API
+- Added **`"debugger"` permission** to `manifest.json`.
+- Integrated `chrome.debugger.attach()` in `background.js` during `START_PLAYBACK`.
+- Enabled `Network` and `Runtime` (Console) CDP domains.
+- Implemented real-time streaming of requests, responses (including bodies), and console logs to the React UI.
+- Automated `chrome.debugger.detach()` on stop/finish.
 
-- **Network Route Mocking:**
-  - Build UI and backend mechanics to add "Mock Request" steps. Using Playwright's `page.route()`, intercept endpoints during test playback so the UI can be validated offline and without a staging backend.
-- **Cross-Window & Multi-Tab Execution:**
-  - Currently, we track one primary session well. Focus on strengthening the `selectWindow` and `chrome.tabs.create` listener integrations so that test cases sprawling across multiple popups natively sync tab shifts across both Pytest and the Live Environment.
-- **Advanced Flow Control Loops:**
-  - Implement conditionals (e.g. `If Element Exists`, `Skip 3 steps`), significantly enriching the data model logic to handle asynchronous DOM paints.
-- **Service Worker Lifecycle Hardening:**
-  - `lastRealTabId` periodically clears due to Manifest V3 service worker idle-death. Transition tracking heuristics natively into volatile memory schemas like `chrome.storage.session` for instant boot recoveries.
+### UI Enhancements
+- **UtilityPanel**:
+  - New **Console** tab: Lists logs with timestamps and severity-based coloring.
+  - New **Network** tab: Comprehensive table of requests with method, status, URL, and expandable Payloads/Response Bodies.
+  - Added real-time log counts to tab headers.
+  - Integrated "Clear" buttons for easier debugging cycles.
+- **Settings**: Added toggle for "Live Inspector Tracing".
+
+### Export & Reporting
+- Updated `ReportModal` to include **Console Logs** and **Network Intercepts** in the Markdown report export.
+- Enhanced the report summary to display the total count of captured traces.
+
+---
+
+## 2. What We're Going to Do Next (Ordered Priority)
+
+### 🔲 Network Route Mocking
+- Build UI to add "Mock Request" steps.
+- Use Playwright's `page.route()` in the background to intercept and return mock data for specific endpoints during playback.
+
+### 🔲 Cross-Tab Execution & Tab Management
+- Strengthen `selectWindow` and tab tracking logic.
+- Ensure state consistency when recording/playing back across multiple windows.
+
+### 🔲 Advanced Flow Control
+- Implement `if element exists` / `skip N steps` logic to handle dynamic page states more gracefully.
 
 ---
 
 ## 3. Project Overview & File Structure
 
-A **Chrome Extension (Manifest V3)** that records user interactions in the browser and plays them back using Playwright/Selenium-compatible logic. The UI is a React + Vite popup showcasing Monaco-styled code mapping and testing tools.
+A **Chrome Extension (Manifest V3)** focusing on professional-grade Playwright/Selenium recording. Features a React editor with resizable panels, live CDP tracing, and Monaco-style code highlighting.
 
 ```
 postcss.config/          
 ├── src/
-│   ├── App.jsx          ← Main UI (React, ~2700 lines)
+│   ├── App.jsx          ← Main UI (React, ~3250 lines)
+│   │                      • UtilityPanel: Log/Screenshots/Variables/Console/Network (Now Resizable)
+│   │                      • PanelGroup / Panel / ResizeHandle (Layout management)
+│   │                      • ReportModal: Integrated network/console trace reporting
 │   ├── codeGenerator.js ← Playwright string boilerplate maps
-│   └── index.css        ← Custom tracking styles like .step-highlight-active
+│   └── index.css        ← Custom styles
 ├── public/
 │   ├── manifest.json    ← MV3 manifest
-│   ├── background.js    ← Service worker: recording state, querySelectorDeep logic
-│   ├── content.js       ← Shadow DOM element parsing, action broadcasts
+│   ├── background.js    ← Service worker: CDP management, action recording, playback
+│   ├── content.js       ← DOM parsing & shadow piercing
 │   └── icons/
 ├── dist/                ← Built output
-└── package.json         ← Includes @monaco-editor/react
+└── package.json         ← Deps: react-resizable-panels, lucide-react, etc.
 ```
 
-> **Build Check:** `npm run build` is currently passing and green.
+---
+
+## 4. Known Issues / Gotchas
+
+| Issue | Status | Notes |
+|---|---|---|
+| Chrome debugger banner | Expected | "Automation Pro Recorder started debugging..." is native security behavior. |
+| Large response bodies | Informational | Truncated to 5000 chars in UI; full body persists in MD export. |
+| Layout sizing | Optimization | `defaultSize` handles initial render; may need refinement for very small screens. |
+
+---
+
+## 5. Build & Dev Commands
+
+```bash
+# Production Build (Crucial for testing the extension)
+npm run build
+```

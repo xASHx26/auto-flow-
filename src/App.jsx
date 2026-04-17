@@ -3042,18 +3042,20 @@ export default function App() {
         onToggleCodePreview={() => setShowCodePreview((v) => !v)}
       />
 
-      <div className="flex-1 flex overflow-hidden">
-        <Sidebar
-          testCases={testCases}
-          selectedIndex={selectedTestCase}
-          onSelect={handleTestCaseSelect}
-          onSave={saveTestsToFile}
-          onLoad={loadTestsFromFile}
-        />
+      <div className="flex-1 flex flex-row overflow-hidden w-full h-full min-h-0 min-w-0">
+        <div style={{ width: 260, minWidth: 260, flexShrink: 0 }} className="flex flex-col bg-[#181818] border-r border-[#2a2a2a] overflow-hidden min-h-0">
+          <Sidebar
+            testCases={testCases}
+            selectedIndex={selectedTestCase}
+            onSelect={handleTestCaseSelect}
+            onSave={saveTestsToFile}
+            onLoad={loadTestsFromFile}
+          />
+        </div>
 
-        <div className="flex-1 flex overflow-hidden border-l border-gray-800">
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0 relative bg-[#1c1c1c]">
           {/* Step Grid + Utility stacked vertically */}
-          <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0 relative">
             <StepGrid
               actions={actions}
               playingIndex={playingIndex}
@@ -3062,6 +3064,11 @@ export default function App() {
               onReorder={reorderAction}
               onDuplicate={(idx) => setDuplicateStepIdx(idx)}
             />
+          </div>
+
+          <div className="w-full h-[2px] bg-gray-800 shrink-0 border-t border-gray-900"></div>
+
+          <div style={{ height: 320, minHeight: 320, flexShrink: 0 }} className="flex flex-col overflow-hidden min-w-0 w-full relative">
             <UtilityPanel
               activeTab={activeTab}
               onTabSelect={setActiveTab}
@@ -3073,12 +3080,18 @@ export default function App() {
               onUpdateVariable={updateVariable}
               onDeleteVariable={deleteVariable}
               onAddVariable={addVariable}
+              onClearScreenshots={clearScreenshots}
+              onClearConsole={() => setConsoleLogs([])}
+              onClearNetwork={() => setNetworkLogs([])}
             />
           </div>
+        </div>
 
-          {/* ── Live Code Preview Panel ── */}
-          {showCodePreview && (
-            <div className="w-[420px] shrink-0 flex flex-col border-l border-gray-700 bg-[#1e1e1e]">
+        {/* ── Live Code Preview Panel ── */}
+        {showCodePreview && (
+          <>
+            <div className="h-full w-[1px] bg-gray-700 shrink-0"></div>
+            <div style={{ width: 420, minWidth: 420, flexShrink: 0 }} className="flex flex-col bg-[#1e1e1e] overflow-hidden min-h-0 relative">
               <div className="flex items-center justify-between px-3 py-1.5 bg-[#252525] border-b border-gray-700 shrink-0">
                 <div className="flex items-center gap-2">
                   <Terminal size={11} className="text-blue-400" />
@@ -3158,8 +3171,8 @@ export default function App() {
                 })}
               </div>
             </div>
-          )}
-        </div>
+          </>
+        )}
       </div>
     </div>
   );
