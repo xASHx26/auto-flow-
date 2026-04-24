@@ -29,8 +29,87 @@ import {
   Package,
   Globe,
 } from "lucide-react";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef, useCallback } from "react";
 // Monaco Editor replaced with lightweight inline renderer (no CSP/worker issues)
+
+// ─────────────────────────────────────────────
+// Resizable panel hook
+// ─────────────────────────────────────────────
+
+function useResizable(initialSize, { direction = "horizontal", min = 100, max = 900 } = {}) {
+  const [size, setSize] = useState(initialSize);
+  const [isDragging, setIsDragging] = useState(false);
+  const startPos = useRef(0);
+  const startSize = useRef(0);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    startPos.current = direction === "horizontal" ? e.clientX : e.clientY;
+    startSize.current = size;
+    setIsDragging(true);
+
+    const cursorClass = direction === "horizontal" ? "resizing" : "resizing-h";
+    document.body.classList.add(cursorClass);
+
+    const onMouseMove = (moveE) => {
+      const delta = direction === "horizontal"
+        ? moveE.clientX - startPos.current
+        : moveE.clientY - startPos.current;
+      const newSize = Math.max(min, Math.min(max, startSize.current + delta));
+      setSize(newSize);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.classList.remove(cursorClass);
+      setIsDragging(false);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [size, direction, min, max]);
+
+  return { size, isDragging, onMouseDown };
+}
+
+// Reverse version: dragging LEFT increases size (for right-side panels)
+function useResizableReverse(initialSize, { direction = "horizontal", min = 100, max = 900 } = {}) {
+  const [size, setSize] = useState(initialSize);
+  const [isDragging, setIsDragging] = useState(false);
+  const startPos = useRef(0);
+  const startSize = useRef(0);
+
+  const onMouseDown = useCallback((e) => {
+    e.preventDefault();
+    startPos.current = direction === "horizontal" ? e.clientX : e.clientY;
+    startSize.current = size;
+    setIsDragging(true);
+
+    const cursorClass = direction === "horizontal" ? "resizing" : "resizing-h";
+    document.body.classList.add(cursorClass);
+
+    const onMouseMove = (moveE) => {
+      const delta = direction === "horizontal"
+        ? startPos.current - moveE.clientX
+        : startPos.current - moveE.clientY;
+      const newSize = Math.max(min, Math.min(max, startSize.current + delta));
+      setSize(newSize);
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove);
+      document.removeEventListener("mouseup", onMouseUp);
+      document.body.classList.remove(cursorClass);
+      setIsDragging(false);
+    };
+
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }, [size, direction, min, max]);
+
+  return { size, isDragging, onMouseDown };
+}
 
 // ─────────────────────────────────────────────
 // Playwright / Selenium code generators
@@ -1848,9 +1927,75 @@ function cmdLabel(command) {
   }
 }
 
-function StepGrid({ actions, playingIndex, onUpdate, onDelete, onReorder, onDuplicate }) {
+function WaitPopover({ idx, onInsert, onClose }) {
+  const [num, setNum] = useState("1");
+  const [unit, setUnit] = useState("s");
+  const ref = useRef(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [onClose]);
+
+  const confirm = () => {
+    const n = parseFloat(num) || 1;
+    onInsert(idx, `${n} ${unit}`);
+    onClose();
+  };
+
+  return (
+    <div
+      ref={ref}
+      className="absolute z-50 left-7 top-0 flex flex-col gap-2 bg-[#1e2035] border border-amber-500/40 rounded-xl shadow-2xl shadow-amber-900/30 p-3 min-w-[180px]"
+      style={{ transform: "translateY(-30%)" }}
+    >
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <Clock size={11} className="text-amber-400" />
+        <span className="text-[10px] font-bold text-amber-300 uppercase tracking-widest">Insert Wait After Step {idx + 1}</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          min="0"
+          step="0.5"
+          className="w-16 bg-[#2a2a3a] border border-amber-600/40 focus:border-amber-400 rounded-lg px-2 py-1 text-[12px] text-amber-200 font-mono outline-none"
+          value={num}
+          onChange={(e) => setNum(e.target.value)}
+          autoFocus
+          onKeyDown={(e) => { if (e.key === "Enter") confirm(); if (e.key === "Escape") onClose(); }}
+        />
+        <select
+          className="bg-[#2a2a3a] border border-amber-600/40 focus:border-amber-400 rounded-lg px-2 py-1 text-[11px] text-amber-300 font-bold outline-none cursor-pointer"
+          value={unit}
+          onChange={(e) => setUnit(e.target.value)}
+        >
+          <option value="ms">ms</option>
+          <option value="s">s</option>
+          <option value="min">min</option>
+        </select>
+      </div>
+      <div className="flex gap-1.5 justify-end">
+        <button
+          onClick={onClose}
+          className="px-2.5 py-1 rounded-lg text-[10px] font-bold text-gray-500 hover:text-gray-300 hover:bg-white/5 transition-colors"
+        >Cancel</button>
+        <button
+          onClick={confirm}
+          className="px-3 py-1 rounded-lg text-[10px] font-bold bg-amber-600 hover:bg-amber-500 text-white transition-colors shadow-sm shadow-amber-800/40"
+        >Insert</button>
+      </div>
+    </div>
+  );
+}
+
+function StepGrid({ actions, playingIndex, onUpdate, onDelete, onReorder, onDuplicate, onInsertWait }) {
   const [dragIdx, setDragIdx] = useState(null);
   const [overIdx, setOverIdx] = useState(null);
+  const [waitPopoverIdx, setWaitPopoverIdx] = useState(null);
 
   const onDragStart = (e, idx) => {
     setDragIdx(idx);
@@ -1927,9 +2072,9 @@ function StepGrid({ actions, playingIndex, onUpdate, onDelete, onReorder, onDupl
                 <GripVertical size={11} className="mx-auto" />
               </td>
 
-              {/* # */}
+              {/* # + Wait button */}
               <td
-                className={`py-2 text-center bg-black/10 border-r border-gray-800 tabular-nums ${
+                className={`py-2 text-center bg-black/10 border-r border-gray-800 tabular-nums relative ${
                   isScreenshot
                     ? "text-violet-400"
                     : idx === playingIndex
@@ -1943,15 +2088,33 @@ function StepGrid({ actions, playingIndex, onUpdate, onDelete, onReorder, onDupl
                             : "text-gray-600 font-medium"
                 }`}
               >
-                {idx + 1}
-                {action.errorScreenshot && (
+                <div className="flex flex-col items-center gap-0.5">
+                  <span>{idx + 1}</span>
+                  {action.errorScreenshot && (
+                    <button
+                      onClick={() => window.open(action.errorScreenshot)}
+                      className="text-amber-500 hover:text-amber-400"
+                      title="View Error Screenshot"
+                    >
+                      <ImageIcon size={10} />
+                    </button>
+                  )}
+                  {/* Wait insert button — visible on row hover */}
                   <button
-                    onClick={() => window.open(action.errorScreenshot)}
-                    className="ml-1 text-amber-500 hover:text-amber-400"
-                    title="View Error Screenshot"
+                    onClick={(e) => { e.stopPropagation(); setWaitPopoverIdx(waitPopoverIdx === idx ? null : idx); }}
+                    className="opacity-0 group-hover:opacity-100 transition-all p-0.5 rounded text-amber-500/70 hover:text-amber-400 hover:bg-amber-500/10"
+                    title={`Insert wait after step ${idx + 1}`}
                   >
-                    <ImageIcon size={10} />
+                    <Clock size={10} />
                   </button>
+                </div>
+                {/* Wait popover */}
+                {waitPopoverIdx === idx && (
+                  <WaitPopover
+                    idx={idx}
+                    onInsert={(i, val) => { onInsertWait(i, val); }}
+                    onClose={() => setWaitPopoverIdx(null)}
+                  />
                 )}
               </td>
 
@@ -2509,6 +2672,11 @@ export default function App() {
   const [networkLogs, setNetworkLogs] = useState([]);
 
   const [isAssertMode, setIsAssertMode] = useState(false);
+
+  // ── Resizable panels ──
+  const sidebarResize = useResizable(260, { direction: "horizontal", min: 160, max: 500 });
+  const utilityResize = useResizableReverse(320, { direction: "vertical", min: 80, max: 700 });
+  const codePreviewResize = useResizableReverse(420, { direction: "horizontal", min: 200, max: 900 });
   const [logs, setLogs] = useState([
     {
       time: new Date().toLocaleTimeString(),
@@ -2856,6 +3024,32 @@ export default function App() {
     addManualStep(newAction);
   };
 
+  // Insert a wait/pause step immediately after a given step index
+  const insertWaitAfter = (afterIdx, value = "1 s") => {
+    const waitAction = {
+      command: "pause",
+      target: "",
+      value,
+      text: "Wait",
+      elementType: "sleep",
+      placeholder: "",
+      timestamp: new Date().toISOString(),
+      status: null,
+      allSelectors: {},
+      isAssertion: false,
+    };
+    const updated = [...actions];
+    updated.splice(afterIdx + 1, 0, waitAction);
+    setActions(updated);
+    syncTestCases(
+      testCases.map((tc, i) =>
+        i === selectedTestCase ? { ...tc, actions: updated } : tc
+      ),
+      selectedTestCase
+    );
+    addLog(`Wait step (${value}) inserted after step ${afterIdx + 1}.`, "info");
+  };
+
   const reorderAction = (fromIdx, toIdx) => {
     const newActions = [...actions];
     const [moved] = newActions.splice(fromIdx, 1);
@@ -3043,7 +3237,7 @@ export default function App() {
       />
 
       <div className="flex-1 flex flex-row overflow-hidden w-full h-full min-h-0 min-w-0">
-        <div style={{ width: 260, minWidth: 260, flexShrink: 0 }} className="flex flex-col bg-[#181818] border-r border-[#2a2a2a] overflow-hidden min-h-0">
+        <div style={{ width: sidebarResize.size, minWidth: 160, flexShrink: 0 }} className="flex flex-col bg-[#181818] border-r border-[#2a2a2a] overflow-hidden min-h-0">
           <Sidebar
             testCases={testCases}
             selectedIndex={selectedTestCase}
@@ -3052,6 +3246,12 @@ export default function App() {
             onLoad={loadTestsFromFile}
           />
         </div>
+
+        {/* Resize handle: Sidebar ↔ Center */}
+        <div
+          className={`resize-handle-v${sidebarResize.isDragging ? ' active' : ''}`}
+          onMouseDown={sidebarResize.onMouseDown}
+        />
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0 min-h-0 relative bg-[#1c1c1c]">
           {/* Step Grid + Utility stacked vertically */}
@@ -3063,12 +3263,17 @@ export default function App() {
               onDelete={deleteAction}
               onReorder={reorderAction}
               onDuplicate={(idx) => setDuplicateStepIdx(idx)}
+              onInsertWait={insertWaitAfter}
             />
           </div>
 
-          <div className="w-full h-[2px] bg-gray-800 shrink-0 border-t border-gray-900"></div>
+          {/* Resize handle: StepGrid ↔ UtilityPanel */}
+          <div
+            className={`resize-handle-h${utilityResize.isDragging ? ' active' : ''}`}
+            onMouseDown={utilityResize.onMouseDown}
+          />
 
-          <div style={{ height: 320, minHeight: 320, flexShrink: 0 }} className="flex flex-col overflow-hidden min-w-0 w-full relative">
+          <div style={{ height: utilityResize.size, minHeight: 80, flexShrink: 0 }} className="flex flex-col overflow-hidden min-w-0 w-full relative">
             <UtilityPanel
               activeTab={activeTab}
               onTabSelect={setActiveTab}
@@ -3090,8 +3295,12 @@ export default function App() {
         {/* ── Live Code Preview Panel ── */}
         {showCodePreview && (
           <>
-            <div className="h-full w-[1px] bg-gray-700 shrink-0"></div>
-            <div style={{ width: 420, minWidth: 420, flexShrink: 0 }} className="flex flex-col bg-[#1e1e1e] overflow-hidden min-h-0 relative">
+            {/* Resize handle: Center ↔ Code Preview */}
+            <div
+              className={`resize-handle-v${codePreviewResize.isDragging ? ' active' : ''}`}
+              onMouseDown={codePreviewResize.onMouseDown}
+            />
+            <div style={{ width: codePreviewResize.size, minWidth: 200, flexShrink: 0 }} className="flex flex-col bg-[#1e1e1e] overflow-hidden min-h-0 relative">
               <div className="flex items-center justify-between px-3 py-1.5 bg-[#252525] border-b border-gray-700 shrink-0">
                 <div className="flex items-center gap-2">
                   <Terminal size={11} className="text-blue-400" />

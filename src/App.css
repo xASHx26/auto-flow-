@@ -182,3 +182,62 @@
     border-right-color: var(--border);
   }
 }
+
+/* ── Resize Handles ────────────────────────── */
+.resize-handle-v {
+  width: 5px;
+  cursor: col-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+  background: transparent;
+  transition: background 0.15s;
+}
+.resize-handle-v:hover,
+.resize-handle-v.active {
+  background: rgba(59, 130, 246, 0.45);
+}
+.resize-handle-v::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: #333;
+}
+
+.resize-handle-h {
+  height: 5px;
+  cursor: row-resize;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+  background: transparent;
+  transition: background 0.15s;
+}
+.resize-handle-h:hover,
+.resize-handle-h.active {
+  background: rgba(59, 130, 246, 0.45);
+}
+.resize-handle-h::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 1px;
+  transform: translateY(-50%);
+  background: #333;
+}
+
+/* Prevent text selection during resize */
+.resizing {
+  user-select: none !important;
+  cursor: col-resize !important;
+}
+.resizing-h {
+  user-select: none !important;
+  cursor: row-resize !important;
+}
